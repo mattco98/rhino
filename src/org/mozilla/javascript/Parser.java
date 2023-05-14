@@ -431,6 +431,10 @@ public class Parser {
         return tt;
     }
 
+    private boolean matchToken(int toMatch) throws IOException {
+        return matchToken(toMatch, true);
+    }
+
     private boolean matchToken(int toMatch, boolean ignoreComment) throws IOException {
         int tt = peekToken();
         while (tt == Token.COMMENT && ignoreComment) {
@@ -3455,6 +3459,7 @@ public class Parser {
     private static final int GET_ENTRY = 2;
     private static final int SET_ENTRY = 4;
     private static final int METHOD_ENTRY = 8;
+    private static final int GENERATOR_ENTRY = 16;
 
     private ObjectLiteral objectLiteral() throws IOException {
         int pos = ts.tokenBeg, lineno = ts.lineno;
@@ -3482,6 +3487,7 @@ public class Parser {
                 if (afterComma != -1) warnTrailingComma(pos, elems, afterComma);
                 break commaLoop;
             }
+            boolean isGenerator = matchToken(Token.MUL);
             AstNode pname = objliteralProperty();
             if (pname == null) {
                 reportError("msg.bad.prop");
@@ -3501,7 +3507,7 @@ public class Parser {
                 int peeked = peekToken();
                 if (peeked != Token.COMMA && peeked != Token.COLON && peeked != Token.RC) {
                     if (peeked == Token.LP) {
-                        entryKind = METHOD_ENTRY;
+                        entryKind = isGenerator ? GENERATOR_ENTRY : METHOD_ENTRY;
                     } else if (pname.getType() == Token.NAME) {
                         if ("get".equals(propertyName)) {
                             entryKind = GET_ENTRY;
@@ -3534,6 +3540,7 @@ public class Parser {
                 switch (entryKind) {
                     case PROP_ENTRY:
                     case METHOD_ENTRY:
+                    case GENERATOR_ENTRY:
                         if (getterNames.contains(propertyName)
                                 || setterNames.contains(propertyName)) {
                             addError("msg.dup.obj.lit.prop.strict", propertyName);
@@ -3635,7 +3642,7 @@ public class Parser {
 
     private ObjectProperty methodDefinition(int pos, AstNode propName, int entryKind)
             throws IOException {
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION);
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, entryKind == GENERATOR_ENTRY);
         // We've already parsed the function name, so fn should be anonymous.
         Name name = fn.getFunctionName();
         if (name != null && name.length() != 0) {
