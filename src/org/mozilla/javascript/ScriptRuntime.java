@@ -4532,6 +4532,12 @@ public class ScriptRuntime {
         return clazzObj;
     }
 
+    public static void checkCalledWithNew(Scriptable thisObj, String ctorName) {
+        if (thisObj.get("new.target", thisObj) == UniqueTag.NOT_FOUND) {
+            throw ScriptRuntime.typeErrorById("msg.no.new", ctorName);
+        }
+    }
+
     /** @deprecated Use {@link #getMessageById(String messageId, Object... args)} instead */
     @Deprecated
     public static String getMessage0(String messageId) {

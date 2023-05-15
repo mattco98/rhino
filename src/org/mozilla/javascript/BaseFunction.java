@@ -394,6 +394,7 @@ public class BaseFunction extends IdScriptableObject implements Function {
     public Scriptable construct(Context cx, Scriptable scope, Object[] args) {
         Scriptable result = createObject(cx, scope);
         if (result != null) {
+            result.put("new.target", result, this);
             Object val = call(cx, scope, result, args);
             if (val instanceof Scriptable) {
                 result = (Scriptable) val;

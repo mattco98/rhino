@@ -318,6 +318,10 @@ class BodyCodegen {
 
         // TODO: This should only happen after invoking super()
         if (currentCtorClass) {
+            cfw.addALoad(thisObjLocal);
+            cfw.addPush(fnCurrent.fnode.getName());
+            addScriptRuntimeInvoke("checkCalledWithNew", VOID, SCRIPTABLE, STRING);
+
             // Initialize all instance fields
             ClassNode cls = ((FunctionNode) scriptOrFn).getParentClass();
             Node child = cls.getFirstChild().getNext();
