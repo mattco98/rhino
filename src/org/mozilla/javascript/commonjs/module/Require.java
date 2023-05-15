@@ -220,7 +220,7 @@ public class Require extends BaseFunction {
         throw ScriptRuntime.throwError(cx, scope, "require() can not be invoked as a constructor");
     }
 
-    private Scriptable getExportedModuleInterface(
+    public Scriptable getExportedModuleInterface(
             Context cx, String id, URI uri, URI base, boolean isMain) {
         // Check if the requested module is already completely loaded
         Scriptable exports = exportedModuleInterfaces.get(id);

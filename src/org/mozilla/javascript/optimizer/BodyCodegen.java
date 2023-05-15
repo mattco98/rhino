@@ -2,6 +2,7 @@ package org.mozilla.javascript.optimizer;
 
 import static org.mozilla.classfile.ClassFileWriter.ACC_PRIVATE;
 import static org.mozilla.classfile.ClassFileWriter.ACC_STATIC;
+import static org.mozilla.javascript.optimizer.Codegen.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,9 +20,7 @@ import org.mozilla.javascript.NativeGenerator;
 import org.mozilla.javascript.Node;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Token;
-import org.mozilla.javascript.ast.FunctionNode;
-import org.mozilla.javascript.ast.Jump;
-import org.mozilla.javascript.ast.ScriptNode;
+import org.mozilla.javascript.ast.*;
 
 class BodyCodegen {
     void generateBodyCode() {
@@ -317,6 +316,52 @@ class BodyCodegen {
         // in generateGenerator().
         if (isGenerator) return;
 
+        // TODO: This should only happen after invoking super()
+        if (currentCtorClass) {
+            // Initialize all instance fields
+            ClassNode cls = ((FunctionNode) scriptOrFn).getParentClass();
+            Node child = cls.getFirstChild().getNext();
+
+            while (child != null) {
+                if (child instanceof ClassField && !((ClassField) child).isStatic()) {
+                    ClassField cp = (ClassField) child;
+                    Node defaultValue = cp.getFirstChild();
+                    Object name = cp.getNameKey();
+
+                    cfw.addALoad(thisObjLocal);
+
+                    if (name instanceof String) {
+                        cfw.addPush((String) name);
+                    } else if (name instanceof Node) {
+                        Node nameNode = (Node) name;
+                        generateExpression(nameNode, cls);
+                    } else {
+                        cfw.addPush((Integer) name);
+                        addScriptRuntimeInvoke("wrapInt", "Ljava/lang/Integer;", INTEGER);
+                    }
+
+                    generateExpression(defaultValue, cls);
+                    cfw.addALoad(contextLocal);
+                    addScriptRuntimeInvoke("addClassProperty", OBJECT, OBJECT, OBJECT, OBJECT, CONTEXT);
+                    cfw.addAStore(thisObjLocal);
+
+                    child = child.getNext();
+                    continue;
+                }
+
+                // We want to run through all of the ClassNode's children,
+                // and then at the very end, execute the same code for the
+                // class itself
+                if (child instanceof ClassNode) break;
+
+                child = child.getNext();
+
+                if (child == null) {
+                    child = cls;
+                }
+            }
+        }
+
         if (hasVarsInRegs) {
             // No need to create activation. Pad arguments if need be.
             int parmCount = scriptOrFn.getParamCount();
@@ -554,6 +599,12 @@ class BodyCodegen {
             cfw.markLabel(epilogueLabel);
         }
 
+        if (currentCtorClass) {
+            cfw.addALoad(thisObjLocal);
+            cfw.addPush("new.target");
+            cfw.addInvoke(ByteCode.INVOKEINTERFACE, "org/mozilla/javascript/Scriptable", "delete", "(Ljava/lang/String;)V");
+        }
+
         if (isGenerator) {
             if (((FunctionNode) scriptOrFn).getResumptionPoints() != null) {
                 cfw.markTableSwitchDefault(generatorSwitch);
@@ -679,6 +730,11 @@ class BodyCodegen {
                     break;
                 }
 
+            case Token.CLASS: {
+                visitClass((ClassNode) node);
+                break;
+            }
+
             case Token.TRY:
                 visitTryCatchFinally((Jump) node, child);
                 break;
@@ -737,6 +793,8 @@ class BodyCodegen {
 
             case Token.RETURN_RESULT:
             case Token.RETURN:
+                // TODO: Return value from a constructor should be checked, but requires
+                //       knowledge of whether this is a base class to do properly
                 if (child != null) {
                     generateExpression(child, node);
                 } else if (type == Token.RETURN) {
@@ -957,6 +1015,11 @@ class BodyCodegen {
                     visitFunction(ofn, t);
                 }
                 break;
+
+            case Token.CLASS: {
+                visitClass((ClassNode) node);
+                break;
+            }
 
             case Token.NAME:
                 {
@@ -1852,6 +1915,71 @@ class BodyCodegen {
                 cfw.add(ByteCode.IFNE, trueLabel);
                 cfw.add(ByteCode.GOTO, falseLabel);
         }
+    }
+
+    private void visitClass(ClassNode cls) {
+        Node child = cls.getFirstChild();
+
+        generateExpression(child, cls);
+        child = child.getNext();
+
+        while (child != null) {
+            if (child instanceof ClassMethod) {
+                ClassMethod cm = (ClassMethod) child;
+                Node method = cm.getFirstChild();
+                Object name = cm.getNameKey();
+
+                if (name instanceof String) {
+                    cfw.addPush((String) name);
+                } else if (name instanceof Node) {
+                    Node node = (Node) name;
+                    generateExpression(node, cls);
+                } else {
+                    cfw.addPush((Integer) name);
+                    addScriptRuntimeInvoke("wrapInt", "Ljava/lang/Integer;", INTEGER);
+                }
+
+                generateExpression(method, cls);
+                cfw.addALoad(contextLocal);
+                cfw.addPush(!cm.isStatic());
+                cfw.addPush(cm.isGetterMethod() ? 2 : cm.isSetterMethod() ? 1 : 0);
+                addScriptRuntimeInvoke("addClassMethod", OBJECT, OBJECT, OBJECT, OBJECT, CONTEXT, BOOLEAN, INTEGER);
+
+                child = child.getNext();
+            } else if (child instanceof ClassField) {
+                ClassField cp = (ClassField) child;
+                Node defaultValue = cp.getFirstChild();
+                Object name = cp.getNameKey();
+
+                if (!cp.isStatic()) {
+                    child = child.getNext();
+                    continue;
+                }
+
+                if (name instanceof String) {
+                    cfw.addPush((String) name);
+                } else if (name instanceof Node) {
+                    Node node = (Node) name;
+                    generateExpression(node, cls);
+                } else {
+                    cfw.addPush((Integer) name);
+                    addScriptRuntimeInvoke("wrapInt", "Ljava/lang/Integer;", INTEGER);
+                }
+
+                generateExpression(defaultValue, cls);
+                cfw.addALoad(contextLocal);
+                addScriptRuntimeInvoke("addClassProperty", OBJECT, OBJECT, OBJECT, OBJECT, CONTEXT);
+
+                child = child.getNext();
+            }
+        }
+
+        cfw.add(ByteCode.DUP);
+        cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/NativeFunction");
+        cfw.addPush(FunctionNode.FUNCTION_STATEMENT);
+        cfw.addALoad(variableObjectLocal);
+        cfw.addALoad(contextLocal);           // load 'cx'
+        addOptRuntimeInvoke("initFunction", VOID, NATIVE_FUNCTION, INTEGER, SCRIPTABLE, CONTEXT);
     }
 
     private void visitFunction(OptFunctionNode ofn, int functionType) {
@@ -4232,12 +4360,20 @@ class BodyCodegen {
         }
     }
 
+    private void addScriptRuntimeInvoke(String methodName, String returnValue, String... args) {
+        addScriptRuntimeInvoke(methodName, "(" + String.join("", args) + ")" + returnValue);
+    }
+
     private void addScriptRuntimeInvoke(String methodName, String methodSignature) {
         cfw.addInvoke(
                 ByteCode.INVOKESTATIC,
                 "org.mozilla.javascript.ScriptRuntime",
                 methodName,
                 methodSignature);
+    }
+
+    private void addOptRuntimeInvoke(String methodName, String returnValue, String... args) {
+        addOptRuntimeInvoke(methodName, "(" + String.join("", args) + ")" + returnValue);
     }
 
     private void addOptRuntimeInvoke(String methodName, String methodSignature) {
@@ -4349,6 +4485,7 @@ class BodyCodegen {
     ScriptNode scriptOrFn;
     public int scriptOrFnIndex;
     private int savedCodeOffset;
+    boolean currentCtorClass = false;
 
     private OptFunctionNode fnCurrent;
 

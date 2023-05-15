@@ -347,6 +347,18 @@ public class Decompiler {
                     // Do nothing
                     break;
 
+                case Token.CLASS:
+                    result.append("class ");
+                    break;
+
+                case Token.EXTENDS:
+                    result.append("extends ");
+                    break;
+
+                case Token.STATIC:
+                    result.append("static ");
+                    break;
+
                 case Token.COMMA:
                     result.append(", ");
                     break;

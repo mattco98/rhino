@@ -286,6 +286,10 @@ public class Codegen implements Evaluator {
             bodygen.scriptOrFn = n;
             bodygen.scriptOrFnIndex = i;
 
+            if (n instanceof FunctionNode && ((FunctionNode) n).isClassConstructor()) {
+                bodygen.currentCtorClass = true;
+            }
+
             bodygen.generateBodyCode();
 
             if (n.getType() == Token.FUNCTION) {
@@ -1283,6 +1287,23 @@ public class Codegen implements Evaluator {
     public void setMainMethodClass(String className) {
         mainMethodClass = className;
     }
+
+    public static final String SCRIPTABLE = "Lorg/mozilla/javascript/Scriptable;";
+    public static final String SCRIPTABLE_OBJECT = "Lorg/mozilla/javascript/ScriptableObject;";
+    public static final String CALLABLE = "Lorg/mozilla/javascript/Callable;";
+    public static final String NATIVE_FUNCTION = "Lorg/mozilla/javascript/NativeFunction;";
+    public static final String FUNCTION = "Lorg/mozilla/javascript/Function;";
+    public static final String REF = "Lorg/mozilla/javascript/Ref;";
+    public static final String CONTEXT = "Lorg/mozilla/javascript/Context;";
+    public static final String OBJECT = "Ljava/lang/Object;";
+    public static final String OBJECT_ARRAY = "[Ljava/lang/Object;";
+    public static final String INTEGER = "I";
+    public static final String BOOLEAN = "Z";
+    public static final String VOID = "V";
+    public static final String LONG = "J";
+    public static final String DOUBLE = "D";
+    public static final String STRING = "Ljava/lang/String;";
+    public static final String STRING_ARRAY = "[Ljava/lang/String;";
 
     static final String DEFAULT_MAIN_METHOD_CLASS = "org.mozilla.javascript.optimizer.OptRuntime";
 

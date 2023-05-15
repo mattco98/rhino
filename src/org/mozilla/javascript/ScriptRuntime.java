@@ -1556,7 +1556,7 @@ public class ScriptRuntime {
      * Helper to return a string or an integer. Always use a null check on s.stringId to determine
      * if the result is string or integer.
      *
-     * @see ScriptRuntime#toStringIdOrIndex(Context, Object)
+     * @see ScriptRuntime#toStringIdOrIndex(Object)
      */
     static final class StringIdOrIndex {
         final String stringId;
@@ -2289,7 +2289,7 @@ public class ScriptRuntime {
         ((IdEnumeration) enumObj).enumNumbers = enumNumbers;
     }
 
-    /** @deprecated since 1.7.15. Use {@link #enumNext(Context, Object)} instead */
+    /** @deprecated since 1.7.15. Use {@link #enumNext(Object, Context)} instead */
     @Deprecated
     public static Boolean enumNext(Object enumObj) {
         return enumNext(enumObj, Context.getContext());
@@ -4463,6 +4463,73 @@ public class ScriptRuntime {
             if (version == Context.VERSION_DEFAULT) Context.reportWarning(msg);
             else throw Context.reportRuntimeError(msg);
         }
+    }
+
+    public static Object addClassMethod(Object clazzObj, Object name, Object method, Context cx, boolean instance, int getterSetter) {
+        ScriptableObject clazz = ScriptableObject.ensureScriptableObject(clazzObj);
+
+        if (instance) {
+            clazz = ScriptableObject.ensureScriptableObject(ScriptableObject.getProperty(clazz, "prototype"));
+        }
+
+        if (name instanceof String) {
+            String nameString = (String) name;
+            if (getterSetter == 0) {
+                clazz.put(nameString, clazz, method);
+                clazz.setAttributes(nameString, clazz.getAttributes(nameString) | ScriptableObject.DONTENUM);
+            } else {
+                Callable getterOrSetter = (Callable) method;
+                boolean isSetter = getterSetter == 1;
+                clazz.setGetterOrSetter(nameString, 0, getterOrSetter, isSetter);
+                clazz.setAttributes(nameString, clazz.getAttributes(nameString) | ScriptableObject.DONTENUM);
+            }
+        } else if (name instanceof Integer) {
+            int nameInt = ((Integer) name);
+            if (getterSetter == 0) {
+                clazz.put(nameInt, clazz, method);
+            } else {
+                Callable getterOrSetter = (Callable) method;
+                boolean isSetter = getterSetter == 1;
+                clazz.setGetterOrSetter(nameInt, 0, getterOrSetter, isSetter);
+            }
+            clazz.setAttributes(nameInt, clazz.getAttributes(nameInt) | ScriptableObject.DONTENUM);
+        } else if (isSymbol(name)) {
+            Symbol nameSymbol = (Symbol) name;
+            if (getterSetter == 0) {
+                clazz.put(nameSymbol, clazz, method);
+                clazz.setAttributes(nameSymbol, clazz.getAttributes(nameSymbol) | ScriptableObject.DONTENUM);
+            } else {
+                Callable getterOrSetter = (Callable) method;
+                boolean isSetter = getterSetter == 1;
+                clazz.setGetterOrSetter(nameSymbol, 0, getterOrSetter, isSetter);
+                clazz.setAttributes(nameSymbol, clazz.getAttributes(nameSymbol) | ScriptableObject.DONTENUM);
+            }
+        } else {
+            throw throwError(cx, clazz, "msg.object.invalid.key.type");
+        }
+
+        return clazzObj;
+    }
+
+    public static Object addClassProperty(Object clazzObj, Object name, Object defaultValue, Context cx) {
+        ScriptableObject clazz = ScriptableObject.ensureScriptableObject(clazzObj);
+
+        if (name instanceof String) {
+            StringIdOrIndex s = toStringIdOrIndex(name);
+            if (s.stringId == null) {
+                clazz.put(s.index, clazz, defaultValue);
+            } else {
+                clazz.put(s.stringId, clazz, defaultValue);
+            }
+        } else if (isSymbol(name)) {
+            clazz.put((Symbol) name, clazz, defaultValue);
+        } else if (name instanceof Integer) {
+            clazz.put((Integer) name, clazz, defaultValue);
+        } else {
+            throw throwError(cx, clazz, "msg.object.invalid.key.type");
+        }
+
+        return clazzObj;
     }
 
     /** @deprecated Use {@link #getMessageById(String messageId, Object... args)} instead */

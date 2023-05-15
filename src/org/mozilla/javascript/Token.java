@@ -225,7 +225,13 @@ public class Token {
             TEMPLATE_CHARS = 171, // template literal - literal section
             TEMPLATE_LITERAL_SUBST = 172, // template literal - substitution
             TAGGED_TEMPLATE_LITERAL = 173, // template literal - tagged/handler
-            LAST_TOKEN = 173;
+
+            // New tokens, TODO: Reorganize
+            CLASS = 174,
+            EXTENDS = 175,
+            STATIC = 176,
+
+            LAST_TOKEN = 176;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -594,6 +600,12 @@ public class Token {
                 return "TEMPLATE_LITERAL_SUBST";
             case TAGGED_TEMPLATE_LITERAL:
                 return "TAGGED_TEMPLATE_LITERAL";
+            case CLASS:
+                return "CLASS";
+            case EXTENDS:
+                return "EXTENDS";
+            case STATIC:
+                return "STATIC";
         }
 
         // Token without name
@@ -613,6 +625,8 @@ public class Token {
                 return "break";
             case Token.CASE:
                 return "case";
+            case Token.CLASS:
+                return "class";
             case Token.CONTINUE:
                 return "continue";
             case Token.DEFAULT:
@@ -623,6 +637,8 @@ public class Token {
                 return "do";
             case Token.ELSE:
                 return "else";
+            case Token.EXTENDS:
+                return "extends";
             case Token.FALSE:
                 return "false";
             case Token.FOR:
@@ -641,6 +657,8 @@ public class Token {
                 return "null";
             case Token.RETURN:
                 return "return";
+            case Token.STATIC:
+                return "static";
             case Token.SWITCH:
                 return "switch";
             case Token.THIS:

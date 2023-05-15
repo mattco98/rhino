@@ -14,76 +14,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.mozilla.javascript.ast.ArrayComprehension;
-import org.mozilla.javascript.ast.ArrayComprehensionLoop;
-import org.mozilla.javascript.ast.ArrayLiteral;
-import org.mozilla.javascript.ast.Assignment;
-import org.mozilla.javascript.ast.AstNode;
-import org.mozilla.javascript.ast.AstRoot;
-import org.mozilla.javascript.ast.BigIntLiteral;
-import org.mozilla.javascript.ast.Block;
-import org.mozilla.javascript.ast.BreakStatement;
-import org.mozilla.javascript.ast.CatchClause;
-import org.mozilla.javascript.ast.Comment;
-import org.mozilla.javascript.ast.ConditionalExpression;
-import org.mozilla.javascript.ast.ContinueStatement;
-import org.mozilla.javascript.ast.DestructuringForm;
-import org.mozilla.javascript.ast.DoLoop;
-import org.mozilla.javascript.ast.ElementGet;
-import org.mozilla.javascript.ast.EmptyExpression;
-import org.mozilla.javascript.ast.EmptyStatement;
-import org.mozilla.javascript.ast.ErrorNode;
-import org.mozilla.javascript.ast.ExpressionStatement;
-import org.mozilla.javascript.ast.ForInLoop;
-import org.mozilla.javascript.ast.ForLoop;
-import org.mozilla.javascript.ast.FunctionCall;
-import org.mozilla.javascript.ast.FunctionNode;
-import org.mozilla.javascript.ast.GeneratorExpression;
-import org.mozilla.javascript.ast.GeneratorExpressionLoop;
-import org.mozilla.javascript.ast.IdeErrorReporter;
-import org.mozilla.javascript.ast.IfStatement;
-import org.mozilla.javascript.ast.InfixExpression;
-import org.mozilla.javascript.ast.Jump;
-import org.mozilla.javascript.ast.KeywordLiteral;
-import org.mozilla.javascript.ast.Label;
-import org.mozilla.javascript.ast.LabeledStatement;
-import org.mozilla.javascript.ast.LetNode;
-import org.mozilla.javascript.ast.Loop;
-import org.mozilla.javascript.ast.Name;
-import org.mozilla.javascript.ast.NewExpression;
-import org.mozilla.javascript.ast.NumberLiteral;
-import org.mozilla.javascript.ast.ObjectLiteral;
-import org.mozilla.javascript.ast.ObjectProperty;
-import org.mozilla.javascript.ast.ParenthesizedExpression;
-import org.mozilla.javascript.ast.PropertyGet;
-import org.mozilla.javascript.ast.RegExpLiteral;
-import org.mozilla.javascript.ast.ReturnStatement;
-import org.mozilla.javascript.ast.Scope;
-import org.mozilla.javascript.ast.ScriptNode;
-import org.mozilla.javascript.ast.StringLiteral;
-import org.mozilla.javascript.ast.SwitchCase;
-import org.mozilla.javascript.ast.SwitchStatement;
+
+import org.mozilla.javascript.ast.*;
 import org.mozilla.javascript.ast.Symbol;
-import org.mozilla.javascript.ast.TaggedTemplateLiteral;
-import org.mozilla.javascript.ast.TemplateCharacters;
-import org.mozilla.javascript.ast.TemplateLiteral;
-import org.mozilla.javascript.ast.ThrowStatement;
-import org.mozilla.javascript.ast.TryStatement;
-import org.mozilla.javascript.ast.UnaryExpression;
-import org.mozilla.javascript.ast.UpdateExpression;
-import org.mozilla.javascript.ast.VariableDeclaration;
-import org.mozilla.javascript.ast.VariableInitializer;
-import org.mozilla.javascript.ast.WhileLoop;
-import org.mozilla.javascript.ast.WithStatement;
-import org.mozilla.javascript.ast.XmlDotQuery;
-import org.mozilla.javascript.ast.XmlElemRef;
-import org.mozilla.javascript.ast.XmlExpression;
-import org.mozilla.javascript.ast.XmlLiteral;
-import org.mozilla.javascript.ast.XmlMemberGet;
-import org.mozilla.javascript.ast.XmlPropRef;
-import org.mozilla.javascript.ast.XmlRef;
-import org.mozilla.javascript.ast.XmlString;
-import org.mozilla.javascript.ast.Yield;
 
 /**
  * This class implements the JavaScript parser.
@@ -134,6 +67,7 @@ public class Parser {
     private LabeledStatement currentLabel;
     private boolean inDestructuringAssignment;
     protected boolean inUseStrictDirective;
+    protected boolean insideClass;
 
     // The following are per function variables and should be saved/restored
     // during function parsing.  See PerFunctionVariables class below.
@@ -462,6 +396,10 @@ public class Parser {
         return tt;
     }
 
+    private boolean mustMatchToken(int toMatch, String messageId) throws IOException {
+        return mustMatchToken(toMatch, messageId, true);
+    }
+
     private boolean mustMatchToken(int toMatch, String messageId, boolean ignoreComment)
             throws IOException {
         return mustMatchToken(
@@ -777,6 +715,174 @@ public class Parser {
             }
         }
         return null;
+    }
+
+    private ClassNode classExpr() throws IOException {
+        insideClass = true;
+        ClassNode cls = new ClassNode(ts.tokenBeg);
+
+        if (matchToken(Token.NAME)) {
+            Name name = createNameNode();
+            defineSymbol(Token.CLASS, name.getIdentifier());
+            cls.setClassName(name);
+        }
+
+        if (matchToken(Token.EXTENDS)) {
+            AstNode extendsName = memberExpr(true);
+            cls.setExtendsNode(extendsName);
+        }
+
+        mustMatchToken(Token.LC, "msg.class.missing.lc");
+
+        Set<String> getterNames = new HashSet<>();
+        Set<String> setterNames = new HashSet<>();
+        List<ClassMethod> classMethods = new ArrayList<>();
+        List<ClassField> classProperties = new ArrayList<>();
+
+        while (true) {
+            // Eat all useless semicolons and line breaks
+            while (matchToken(Token.SEMI) || matchToken(Token.EOL));
+
+            String propertyName;
+            int entryKind = PROP_ENTRY;
+            int tt = peekToken();
+            Comment jsdocNode = getAndResetJsDoc();
+            if (tt == Token.COMMENT) {
+                consumeToken();
+                tt = peekUntilNonComment(tt);
+            }
+            if (tt == Token.RC) {
+                consumeToken();
+                break;
+            }
+
+            boolean isStatic = matchToken(Token.STATIC);
+
+            AstNode pname = objliteralProperty();
+            consumeToken();
+            int pos = ts.tokenBeg;
+            if (pname == null && peekToken() != Token.MUL) {
+                reportError("msg.bad.prop");
+                break;
+            } else {
+                propertyName = ts.getString();
+                int peeked = peekToken();
+
+                if (peeked == Token.LP) {
+                    entryKind = METHOD_ENTRY;
+                } else if (peeked == Token.MUL) {
+                    entryKind = GENERATOR_ENTRY;
+                    consumeToken();
+                } else if (peeked == Token.SEMI || peeked == Token.ASSIGN) {
+                    entryKind = FIELD_ENTRY;
+                } else if (pname.getType() == Token.NAME) {
+                    if ("get".equals(propertyName)) {
+                        entryKind = GET_ENTRY;
+                    } else if ("set".equals(propertyName)) {
+                        entryKind = SET_ENTRY;
+                    }
+                }
+                if (entryKind == GET_ENTRY || entryKind == SET_ENTRY || entryKind == GENERATOR_ENTRY) {
+                    pname = objliteralProperty();
+                    if (pname == null) {
+                        reportError("msg.bad.prop");
+                    }
+                    consumeToken();
+                }
+
+                if (pname == null) {
+                    // TODO: Error
+                    throw Kit.codeBug();
+                } else {
+                    propertyName = ts.getString();
+
+                    if (entryKind == FIELD_ENTRY) {
+                        if ("constructor".equals(propertyName)) {
+                            reportError("msg.class.ctor.as.field");
+                        }
+
+                        AstNode defaultValue = null;
+
+                        int token = peekTokenOrEOL();
+                        if (token == Token.ASSIGN) {
+                            consumeToken();
+                            defaultValue = expr();
+                        } else if (token != Token.SEMI && token != Token.EOL) {
+                            throw Kit.codeBug();
+                        }
+
+                        if (defaultValue == null) {
+                            defaultValue = new Name(ts.tokenBeg, "undefined");
+                        }
+
+                        ClassField cp = new ClassField(pname, defaultValue);
+                        if (isStatic) {
+                            cp.setIsStatic();
+                        }
+
+                        cp.setLength(getNodeEnd(defaultValue) - pos);
+                        classProperties.add(cp);
+                    } else {
+                        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, entryKind == GENERATOR_ENTRY);
+                        pname.setJsDocNode(jsdocNode);
+                        if (isStatic) {
+                            fn.setStatic(true);
+                        }
+                        ClassMethod cm = new ClassMethod(pname, fn);
+                        switch (entryKind) {
+                            case GET_ENTRY:
+                                fn.setFunctionIsGetterMethod();
+                                cm.setIsGetterMethod();
+                                break;
+                            case SET_ENTRY:
+                                fn.setFunctionIsSetterMethod();
+                                cm.setIsSetterMethod();
+                                break;
+                            case METHOD_ENTRY:
+                                fn.setFunctionIsNormalMethod();
+                        }
+
+                        if (isStatic) {
+                            cm.setIsStatic();
+                        }
+
+                        int end = getNodeEnd(fn);
+                        cm.setLength(end - pos);
+
+                        if ("constructor".equals(propertyName)) {
+                            cls.setConstructor(fn);
+                        } else {
+                            classMethods.add(cm);
+                        }
+                    }
+                }
+            }
+
+            if (this.inUseStrictDirective && propertyName != null) {
+                switch (entryKind) {
+                    case PROP_ENTRY:
+                    case METHOD_ENTRY:
+                        getterNames.add(propertyName);
+                        setterNames.add(propertyName);
+                        break;
+                    case GET_ENTRY:
+                        getterNames.add(propertyName);
+                        break;
+                    case SET_ENTRY:
+                        setterNames.add(propertyName);
+                        break;
+                }
+            }
+
+            // Eat any dangling jsdoc in the property.
+            getAndResetJsDoc();
+        }
+
+        cls.setFields(classProperties);
+        cls.setMethods(classMethods);
+        insideClass = false;
+
+        return cls;
     }
 
     private void parseFunctionParams(FunctionNode fnNode) throws IOException {
@@ -2267,6 +2373,7 @@ public class Parser {
             case Token.VAR:
             case Token.CONST:
             case Token.FUNCTION:
+            case Token.CLASS:
                 if (symbol != null) {
                     if (symDeclType == Token.VAR) addStrictWarning("msg.var.redecl", name);
                     else if (symDeclType == Token.LP) {
@@ -2982,7 +3089,6 @@ public class Parser {
      * Check if :: follows name in which case it becomes a qualified name.
      *
      * @param atPos a natural number if we just read an '@' token, else -1
-     * @param s the name or string that was matched (an identifier, "throw" or "*").
      * @param memberTypeFlags flags tracking whether we're a '.' or '..' child
      * @return an XmlRef node if it's an attribute access, a child of a '..' operator, or the name
      *     is followed by ::. For a plain name, returns a Name node. Returns an ErrorNode for
@@ -3071,6 +3177,10 @@ public class Parser {
             case Token.FUNCTION:
                 consumeToken();
                 return function(FunctionNode.FUNCTION_EXPRESSION);
+
+            case Token.CLASS:
+                consumeToken();
+                return classExpr();
 
             case Token.LB:
                 consumeToken();
@@ -3460,6 +3570,7 @@ public class Parser {
     private static final int SET_ENTRY = 4;
     private static final int METHOD_ENTRY = 8;
     private static final int GENERATOR_ENTRY = 16;
+    private static final int FIELD_ENTRY = 32;
 
     private ObjectLiteral objectLiteral() throws IOException {
         int pos = ts.tokenBeg, lineno = ts.lineno;

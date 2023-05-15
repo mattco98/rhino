@@ -77,6 +77,9 @@ public class FunctionNode extends ScriptNode {
     private List<AstNode> params;
     private AstNode body;
     private boolean isExpressionClosure;
+    private boolean isConstructable = true;
+    private ClassNode parentClass = null;
+    private boolean isStatic = false;
     private Form functionForm = Form.FUNCTION;
     private int lp = -1;
     private int rp = -1;
@@ -249,6 +252,34 @@ public class FunctionNode extends ScriptNode {
     /** Sets whether this is a 1.8 function closure */
     public void setIsExpressionClosure(boolean isExpressionClosure) {
         this.isExpressionClosure = isExpressionClosure;
+    }
+
+    public boolean isConstructable() {
+        return isConstructable;
+    }
+
+    public void setConstructable(boolean constructable) {
+        isConstructable = constructable;
+    }
+
+    public boolean isClassConstructor() {
+        return parentClass != null;
+    }
+
+    public ClassNode getParentClass() {
+        return parentClass;
+    }
+
+    public void setParentClass(ClassNode classConstructor) {
+        parentClass = classConstructor;
+    }
+
+    public boolean isStatic() {
+        return isStatic;
+    }
+
+    public void setStatic(boolean aStatic) {
+        isStatic = aStatic;
     }
 
     /**
