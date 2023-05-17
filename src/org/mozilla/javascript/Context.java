@@ -2532,7 +2532,8 @@ public class Context implements Closeable {
 
     private Evaluator createCompiler() {
         Evaluator result = null;
-        if (optimizationLevel >= 0 && codegenClass != null) {
+        // TODO: Look into re-enabling the interpreter
+        if (/*optimizationLevel >= 0 && */codegenClass != null) {
             result = (Evaluator) Kit.newInstanceOrNull(codegenClass);
         }
         if (result == null) {
